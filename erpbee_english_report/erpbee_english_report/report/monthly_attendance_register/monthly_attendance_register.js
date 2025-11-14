@@ -72,7 +72,7 @@ frappe.query_reports["Monthly Attendance Register"] = {
 
 	"onload": function() {
 		return  frappe.call({
-			method: "custom_erpnext.custom_erpnext.report.monthly_attendance_register.monthly_attendance_register.get_attendance_years",
+			method: "erpbee_english_report.erpbee_english_report.report.monthly_attendance_register.monthly_attendance_register.get_attendance_years",
 			callback: function(r) {
 				var year_filter = frappe.query_report.get_filter('year');
 				year_filter.df.options = r.message;
