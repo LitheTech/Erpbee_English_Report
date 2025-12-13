@@ -59,15 +59,49 @@ def execute(filters=None):
 	data = []
 
 	leave_types = None
-	if filters.summarized_view:
+		# columns.extend([_("Total Late Entries") + ":Float:120", _("Total Early Exits") + ":Float:120"])
+	if(filters.group_by and filters.summarized_view):
+		leave_types = frappe.get_all("Leave Type", pluck="name")
+		columns.extend([
+        {"label": _(leave_type), "fieldtype": "Float", "width": 120, "precision": 2}
+        for leave_type in leave_types
+    	])
+		
+		
+		emp_att_map = {}
+
+		for parameter in group_by_parameters:
+			emp_map_set = set(emp_map[parameter].keys())
+			att_map_set = set(att_map.keys())
+
+			if not (emp_map_set & att_map_set):
+				continue
+
+			# ✅ Department header row (works for both summarized & normal)
+			parameter_row = ["<b>" + parameter + "</b>"] + [""] * (len(columns) - 1)
+			data.append(parameter_row)
+
+			record, emp_att_data = add_data(
+				emp_map[parameter],
+				att_map,
+				filters,
+				holiday_map,
+				conditions,
+				default_holiday_list,
+				leave_types=leave_types,
+			)
+
+			emp_att_map.update(emp_att_data)
+			data.extend(record)
+
+	elif filters.summarized_view:
 		leave_types = frappe.get_all("Leave Type", pluck="name")
 		columns.extend([
         {"label": _(leave_type), "fieldtype": "Float", "width": 120, "precision": 2}
         for leave_type in leave_types
     ])
-		# columns.extend([_("Total Late Entries") + ":Float:120", _("Total Early Exits") + ":Float:120"])
 
-	if filters.group_by:
+	elif filters.group_by:
 		emp_att_map = {}
 		for parameter in group_by_parameters:
 			emp_map_set = set([key for key in emp_map[parameter].keys()])
@@ -100,44 +134,8 @@ def execute(filters=None):
 		)
 		data += record
 
-	#chart_data = get_chart_data(emp_att_map, days)
 
 	return columns, data#, None, chart_data
-
-
-def get_chart_data(emp_att_map, days):
-	labels = []
-	datasets = [
-		{"name": "Absent", "values": []},
-		{"name": "Present", "values": []},
-		{"name": "Leave", "values": []},
-	]
-	for idx, day in enumerate(days, start=0):
-		labels.append(day.replace("::65", ""))
-		total_absent_on_day = 0
-		total_leave_on_day = 0
-		total_present_on_day = 0
-		for emp in emp_att_map.keys():
-			if emp_att_map[emp][idx]:
-				if emp_att_map[emp][idx] == "A":
-					total_absent_on_day += 1
-				if emp_att_map[emp][idx] in ["P", "WFH"]:
-					total_present_on_day += 1
-				if emp_att_map[emp][idx] == "HD":
-					total_present_on_day += 0.5
-					total_leave_on_day += 0.5
-				if emp_att_map[emp][idx] == "L":
-					total_leave_on_day += 1
-
-		datasets[0]["values"].append(total_absent_on_day)
-		datasets[1]["values"].append(total_present_on_day)
-		datasets[2]["values"].append(total_leave_on_day)
-
-	chart = {"data": {"labels": labels, "datasets": datasets}}
-
-	chart["type"] = "line"
-
-	return chart
 
 
 def add_data(
@@ -223,13 +221,13 @@ def add_data(
 				as_dict=1,
 			)
 
-			time_default_counts = frappe.db.sql(
-				"""select (select count(*) from `tabAttendance` where \
-				late_entry = 1 %s) as late_entry_count, (select count(*) from tabAttendance where \
-				early_exit = 1 %s) as early_exit_count"""
-				% (conditions, conditions),
-				filters,
-			)
+			# time_default_counts = frappe.db.sql(
+			# 	"""select (select count(*) from `tabAttendance` where \
+			# 	late_entry = 1 %s) as late_entry_count, (select count(*) from tabAttendance where \
+			# 	early_exit = 1 %s) as early_exit_count"""
+			# 	% (conditions, conditions),
+			# 	filters,
+			# )
 
 			leaves = {}
 			for d in leave_details:
@@ -246,7 +244,7 @@ def add_data(
 				else:
 					row.append("0.0")
 
-			row.extend([time_default_counts[0][0], time_default_counts[0][1]])
+			# row.extend([time_default_counts[0][0], time_default_counts[0][1]])
 		emp_att_map[emp] = emp_status_map
 		record.append(row)
 
