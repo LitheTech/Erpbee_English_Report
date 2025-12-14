@@ -1,378 +1,213 @@
-# Copyright (c) 2015, Frappe Technologies Pvt. Ltd. and Contributors
-# License: GNU General Public License v3. See license.txt
-
-
 from calendar import monthrange
-
 import frappe
 from frappe import _, msgprint
 from frappe.utils import cint, cstr, getdate
 
 status_map = {
-	"Absent": "A",
-	"Half Day": "HD",
-	"Holiday": "H",
-	"Weekly Off": "WO",
-	"On Leave": "OL",
-	"Present": "P",
-	"Work From Home": "WFH",
-	"Late":"L",
+    "Absent": "A",
+    "Half Day": "HD",
+    "Holiday": "H",
+    "Weekly Off": "WO",
+    "On Leave": "OL",
+    "Present": "P",
+    "Work From Home": "WFH",
 }
 
 day_abbr = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 
 def execute(filters=None):
-	if not filters:
-		filters = {}
+    if not filters:
+        filters = {}
 
-	if filters.hide_year_field == 1:
-		filters.year = 2020
+    conditions, filters = get_conditions(filters)
+    columns, days = get_columns(filters)
 
-	conditions, filters = get_conditions(filters)
-	columns, days = get_columns(filters)
-	att_map = get_attendance_list(conditions, filters)
-	if not att_map:
-		return columns, [], None, None
+    frappe.flags.report_columns = columns
 
-	if filters.group_by:
-		emp_map, group_by_parameters = get_employee_details(filters.group_by, filters.company)
-		holiday_list = []
-		for parameter in group_by_parameters:
-			h_list = [
-				emp_map[parameter][d]["holiday_list"]
-				for d in emp_map[parameter]
-				if emp_map[parameter][d]["holiday_list"]
-			]
-			holiday_list += h_list
-	else:
-		emp_map = get_employee_details(filters.group_by, filters.company)
-		holiday_list = [emp_map[d]["holiday_list"] for d in emp_map if emp_map[d]["holiday_list"]]
+    att_map = get_attendance_list(conditions, filters)
+    if not att_map:
+        return columns, []
 
-	default_holiday_list = frappe.get_cached_value(
-		"Company", filters.get("company"), "default_holiday_list"
-	)
-	holiday_list.append(default_holiday_list)
-	holiday_list = list(set(holiday_list))
-	holiday_map = get_holiday(holiday_list, filters["month"])
+    employees = get_employees(filters.company, filters.get("employee"))
 
-	data = []
+    data = []
 
-	leave_types = None
-		# columns.extend([_("Total Late Entries") + ":Float:120", _("Total Early Exits") + ":Float:120"])
-	if(filters.group_by and filters.summarized_view):
-		leave_types = frappe.get_all("Leave Type", pluck="name")
-		columns.extend([
-        {"label": _(leave_type), "fieldtype": "Float", "width": 120, "precision": 2}
-        for leave_type in leave_types
-    	])
-		
-		
-		emp_att_map = {}
+    # Get leave types for summarized view
+    leave_types = []
+    if filters.summarized_view:
+        leave_types = frappe.get_all("Leave Type", pluck="name")
+        columns.extend([{"label": lt, "fieldtype": "Float", "width": 120, "precision": 2} for lt in leave_types])
 
-		for parameter in group_by_parameters:
-			emp_map_set = set(emp_map[parameter].keys())
-			att_map_set = set(att_map.keys())
+    current_department = None
 
-			if not (emp_map_set & att_map_set):
-				continue
+    for emp in employees:
+        if emp.department != current_department:
+            current_department = emp.department or _("No Department")
+            dept_row = [f"<b>{current_department}</b>"]
+            dept_row += [""] * (len(columns) - 1)
+            data.append(dept_row)
 
-			# ✅ Department header row (works for both summarized & normal)
-			parameter_row = ["<b>" + parameter + "</b>"] + [""] * (len(columns) - 1)
-			data.append(parameter_row)
+        record = build_employee_row(emp, att_map, filters, conditions, leave_types)
+        if record:
+            data.append(record)
 
-			record, emp_att_data = add_data(
-				emp_map[parameter],
-				att_map,
-				filters,
-				holiday_map,
-				conditions,
-				default_holiday_list,
-				leave_types=leave_types,
-			)
-
-			emp_att_map.update(emp_att_data)
-			data.extend(record)
-
-	elif filters.summarized_view:
-		leave_types = frappe.get_all("Leave Type", pluck="name")
-		columns.extend([
-        {"label": _(leave_type), "fieldtype": "Float", "width": 120, "precision": 2}
-        for leave_type in leave_types
-    ])
-
-	elif filters.group_by:
-		emp_att_map = {}
-		for parameter in group_by_parameters:
-			emp_map_set = set([key for key in emp_map[parameter].keys()])
-			att_map_set = set([key for key in att_map.keys()])
-			if att_map_set & emp_map_set:
-				parameter_row = ["<b>" + parameter + "</b>"] + [
-					"" for day in range(filters["total_days_in_month"] + 2)
-				]
-				data.append(parameter_row)
-				record, emp_att_data = add_data(
-					emp_map[parameter],
-					att_map,
-					filters,
-					holiday_map,
-					conditions,
-					default_holiday_list,
-					leave_types=leave_types,
-				)
-				emp_att_map.update(emp_att_data)
-				data += record
-	else:
-		record, emp_att_map = add_data(
-			emp_map,
-			att_map,
-			filters,
-			holiday_map,
-			conditions,
-			default_holiday_list,
-			leave_types=leave_types,
-		)
-		data += record
+    return columns, data
 
 
-	return columns, data#, None, chart_data
+def get_employees(company, employee=None):
+    return frappe.db.sql(
+        f"""
+        SELECT
+            name,
+            employee_name,
+            department
+        FROM `tabEmployee`
+        WHERE company = %(company)s
+        {"AND name = %(employee)s" if employee else ""}
+        ORDER BY department, name
+        """,
+        {"company": company, "employee": employee},
+        as_dict=True,
+    )
 
 
-def add_data(
-	employee_map, att_map, filters, holiday_map, conditions, default_holiday_list, leave_types=None
-):
-	record = []
-	emp_att_map = {}
-	for emp in employee_map:
-		emp_det = employee_map.get(emp)
-		if not emp_det or emp not in att_map:
-			continue
+def build_employee_row(emp, att_map, filters, conditions, leave_types=[]):
+    if emp.name not in att_map:
+        return None
 
-		row = []
-		if filters.group_by:
-			row += [" "]
-		row += [emp, emp_det.employee_name]
+    row = ["", emp.name, emp.employee_name]
 
-		total_p =total_late= total_a = total_l = total_h = total_um = 0.0
-		emp_status_map = []
-		for day in range(filters["total_days_in_month"]):
-			status = None
-			status = att_map.get(emp).get(day + 1)
+    total_p = total_late = total_a = total_l = total_h = total_um = 0.0
+    emp_status_map = []
 
-			# if status is None and holiday_map:
-			# 	emp_holiday_list = emp_det.holiday_list if emp_det.holiday_list else default_holiday_list
+    for day in range(filters["total_days_in_month"]):
+        status = att_map[emp.name].get(day + 1)
 
-			# 	if emp_holiday_list in holiday_map:
-			# 		for idx, ele in enumerate(holiday_map[emp_holiday_list]):
-			# 			if day + 1 == holiday_map[emp_holiday_list][idx][0]:
-			# 				if holiday_map[emp_holiday_list][idx][1]:
-			# 					status = "Weekly Off"
-			# 				else:
-			# 					status = "Holiday"
-			# 				total_h += 1
+        abbr = status_map.get(status, "")
+        if status == "On Leave" and att_map[emp.name].get(day + 1):
+            leave_type = frappe.db.get_value(
+                "Attendance",
+                {"employee": emp.name, "attendance_date": f"{filters.year}-{filters.month}-{day + 1}"},
+                "leave_type",
+            )
+            abbr = leave_type if leave_type else "OL"
 
-			# abbr = status_map.get(status, "")
-			abbr = status_map.get(status, "")
-			if status == "On Leave" and att_map.get(emp).get(day + 1):
-				leave_type = frappe.db.get_value(
-					"Attendance",
-					{"employee": emp, "attendance_date": f"{filters.year}-{filters.month}-{day + 1}"},
-					"leave_type",
-				)
-				abbr = leave_type if leave_type else "OL"
-			emp_status_map.append(abbr)
-						# emp_status_map.append(abbr)
+        emp_status_map.append(abbr)
 
-			if filters.summarized_view:
-				if status == "Present" or status == "Work From Home":
-					total_p += 1
-				if status == "Late":
-					total_late += 1
-				elif status == "Absent":
-					total_a += 1
-				elif status == "On Leave":
-					total_l += 1
-				elif status == "Half Day":
-					total_p += 0.5
-					total_l += 0.5
-				elif status == "Holiday" or status == "Weekly Off":
-					total_h += 1
-				elif not status:
-					total_um += 1
+        if filters.summarized_view:
+            if status in ("Present", "Work From Home"):
+                total_p += 1
+            elif status == "Absent":
+                total_a += 1
+            elif status == "On Leave":
+                total_l += 1
+            elif status == "Half Day":
+                total_p += 0.5
+                total_l += 0.5
+            elif status in ("Holiday", "Weekly Off"):
+                total_h += 1
+            elif not status:
+                total_um += 1
 
-		if not filters.summarized_view:
-			row += emp_status_map
+    if not filters.summarized_view:
+        row.extend(emp_status_map)
+    else:
+        row.extend([total_p, total_late, total_l, total_a, total_h, total_um])
 
-		if filters.summarized_view:
-			row += [total_p,total_late, total_l, total_a, total_h, total_um]
+        # Add leave type counts
+        if leave_types:
+            filters.update({"employee": emp.name})
+            leave_details = frappe.db.sql(
+                f"""SELECT leave_type, COUNT(*) AS count
+                    FROM `tabAttendance`
+                    WHERE employee=%(employee)s
+                    AND leave_type IS NOT NULL
+                    AND MONTH(attendance_date)=%(month)s
+                    AND YEAR(attendance_date)=%(year)s
+                    GROUP BY leave_type""",
+                filters,
+                as_dict=True,
+            )
 
-		if not filters.get("employee"):
-			filters.update({"employee": emp})
-			conditions += " and employee = %(employee)s"
-		elif not filters.get("employee") == emp:
-			filters.update({"employee": emp})
+            leaves_map = {d.leave_type: d.count for d in leave_details}
+            for lt in leave_types:
+                row.append(leaves_map.get(lt, 0.0))
 
-		if filters.summarized_view:
-			leave_details = frappe.db.sql(
-				"""select leave_type, status, count(*) as count from `tabAttendance`\
-				where leave_type is not NULL %s group by leave_type, status"""
-				% conditions,
-				filters,
-				as_dict=1,
-			)
+    if len(row) < len(frappe.flags.report_columns):
+        row += [""] * (len(frappe.flags.report_columns) - len(row))
 
-			# time_default_counts = frappe.db.sql(
-			# 	"""select (select count(*) from `tabAttendance` where \
-			# 	late_entry = 1 %s) as late_entry_count, (select count(*) from tabAttendance where \
-			# 	early_exit = 1 %s) as early_exit_count"""
-			# 	% (conditions, conditions),
-			# 	filters,
-			# )
-
-			leaves = {}
-			for d in leave_details:
-				if d.status == "Half Day":
-					d.count = d.count * 0.5
-				if d.leave_type in leaves:
-					leaves[d.leave_type] += d.count
-				else:
-					leaves[d.leave_type] = d.count
-
-			for d in leave_types:
-				if d in leaves:
-					row.append(leaves[d])
-				else:
-					row.append("0.0")
-
-			# row.extend([time_default_counts[0][0], time_default_counts[0][1]])
-		emp_att_map[emp] = emp_status_map
-		record.append(row)
-
-	return record, emp_att_map
+    return row
 
 
 def get_columns(filters):
-
-	columns = []
-
-	if filters.group_by:
-		columns = [_(filters.group_by) + ":Link/Branch:120"]
-
-	columns += [_("Employee") + ":Link/Employee:120", _("Employee Name") + ":Data/:120"]
-	days = []
-	for day in range(filters["total_days_in_month"]):
-		date = str(filters.year) + "-" + str(filters.month) + "-" + str(day + 1)
-		day_name = day_abbr[getdate(date).weekday()]
-		days.append(cstr(day + 1) + " " + day_name + "::65")
-	if not filters.summarized_view:
-		columns += days
-
-	if filters.summarized_view:
-		columns += [
-        {"label": _("Total Present"), "fieldtype": "Float", "width": 120, "precision": 1},
-        {"label": _("Total Late"), "fieldtype": "Float", "width": 120, "precision": 1},
-        {"label": _("Total Leaves"), "fieldtype": "Float", "width": 120, "precision": 1},
-        {"label": _("Total Absent"), "fieldtype": "Float", "width": 120, "precision": 1},
-        {"label": _("Total Holidays"), "fieldtype": "Float", "width": 120, "precision": 1},
-        {"label": _("Unmarked Days"), "fieldtype": "Float", "width": 120, "precision": 1},
+    columns = [
+        _("Department") + ":Data:150",
+        _("Employee") + ":Link/Employee:120",
+        _("Employee Name") + ":Data:150",
     ]
-	return columns, days
+
+    days = []
+    for day in range(filters["total_days_in_month"]):
+        date = f"{filters.year}-{filters.month}-{day + 1}"
+        day_name = day_abbr[getdate(date).weekday()]
+        days.append(cstr(day + 1) + " " + day_name + "::65")
+
+    if not filters.summarized_view:
+        columns.extend(days)
+    else:
+        columns.extend([
+            _("Total Present") + ":Float:120",
+            _("Total Late") + ":Float:120",
+            _("Total Leaves") + ":Float:120",
+            _("Total Absent") + ":Float:120",
+            _("Total Holidays") + ":Float:120",
+            _("Unmarked Days") + ":Float:120",
+        ])
+
+    return columns, days
 
 
 def get_attendance_list(conditions, filters):
-	attendance_list = frappe.db.sql(
-		"""select employee, day(attendance_date) as day_of_month,
-		status from tabAttendance where docstatus = 1 %s order by employee, attendance_date"""
-		% conditions,
-		filters,
-		as_dict=1,
-	)
+    attendance_list = frappe.db.sql(
+        f"""
+        SELECT employee, DAY(attendance_date) AS day, status
+        FROM `tabAttendance`
+        WHERE docstatus = 1 {conditions}
+        ORDER BY employee, attendance_date
+        """,
+        filters,
+        as_dict=True,
+    )
 
-	if not attendance_list:
-		msgprint(_("No attendance record found"), alert=True, indicator="orange")
+    att_map = {}
+    for d in attendance_list:
+        att_map.setdefault(d.employee, {})[d.day] = d.status
 
-	att_map = {}
-	for d in attendance_list:
-		att_map.setdefault(d.employee, frappe._dict()).setdefault(d.day_of_month, "")
-		att_map[d.employee][d.day_of_month] = d.status
-
-	return att_map
+    return att_map
 
 
 def get_conditions(filters):
-	if not (filters.get("month") and filters.get("year")):
-		msgprint(_("Please select month and year"), raise_exception=1)
+    if not (filters.get("month") and filters.get("year")):
+        frappe.throw(_("Please select month and year"))
 
-	filters["total_days_in_month"] = monthrange(cint(filters.year), cint(filters.month))[1]
+    filters["total_days_in_month"] = monthrange(
+        cint(filters.year), cint(filters.month)
+    )[1]
 
-	conditions = " and month(attendance_date) = %(month)s and year(attendance_date) = %(year)s"
+    conditions = " AND MONTH(attendance_date) = %(month)s AND YEAR(attendance_date) = %(year)s"
 
-	if filters.get("company"):
-		conditions += " and company = %(company)s"
-	if filters.get("employee"):
-		conditions += " and employee = %(employee)s"
+    if filters.get("company"):
+        conditions += " AND company = %(company)s"
+    if filters.get("employee"):
+        conditions += " AND employee = %(employee)s"
 
-	return conditions, filters
-
-
-def get_employee_details(group_by, company):
-	emp_map = {}
-	query = """select name, employee_name, designation, department, branch, company,
-		holiday_list from `tabEmployee` where company = %s """ % frappe.db.escape(
-		company
-	)
-
-	if group_by:
-		group_by = group_by.lower()
-		query += " order by " + group_by + " ASC"
-
-	employee_details = frappe.db.sql(query, as_dict=1)
-
-	group_by_parameters = []
-	if group_by:
-
-		group_by_parameters = list(
-			set(detail.get(group_by, "") for detail in employee_details if detail.get(group_by, ""))
-		)
-		for parameter in group_by_parameters:
-			emp_map[parameter] = {}
-
-	for d in employee_details:
-		if group_by and len(group_by_parameters):
-			if d.get(group_by, None):
-
-				emp_map[d.get(group_by)][d.name] = d
-		else:
-			emp_map[d.name] = d
-
-	if not group_by:
-		return emp_map
-	else:
-		return emp_map, group_by_parameters
-
-
-def get_holiday(holiday_list, month):
-	holiday_map = frappe._dict()
-	for holiday in holiday_list:
-		if holiday:
-			holiday_map.setdefault(
-				holiday,
-				frappe.db.sql(
-					"""select day(holiday_date), weekly_off from `tabHoliday`
-				where parent=%s and month(holiday_date)=%s""",
-					(holiday, month),
-				),
-			)
-
-	return holiday_map
+    return conditions, filters
 
 
 @frappe.whitelist()
 def get_attendance_years():
-	year_list = frappe.db.sql_list(
-		"""select distinct YEAR(attendance_date) from tabAttendance ORDER BY YEAR(attendance_date) DESC"""
-	)
-	if not year_list:
-		year_list = [getdate().year]
-
-	return "\n".join(str(year) for year in year_list)
+    years = frappe.db.sql_list(
+        "SELECT DISTINCT YEAR(attendance_date) FROM tabAttendance ORDER BY YEAR(attendance_date) DESC"
+    )
+    return "\n".join(str(y) for y in years) or str(getdate().year)

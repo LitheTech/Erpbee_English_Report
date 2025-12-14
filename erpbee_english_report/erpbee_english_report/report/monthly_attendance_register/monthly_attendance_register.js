@@ -54,14 +54,14 @@ frappe.query_reports["Monthly Attendance Register"] = {
 			"default": frappe.defaults.get_user_default("Company"),
 			"reqd": 1
 		},
-		{
-			"fieldname":"group_by",
-			"label": __("Group By"),
-			"fieldtype": "Select",
-			"options": ["","Department","Designation"],
-			"default":"Department",
-			"hidden":1,
-		},
+		// {
+		// 	"fieldname":"group_by",
+		// 	"label": __("Group By"),
+		// 	"fieldtype": "Select",
+		// 	"options": ["","Department","Designation"],
+		// 	"default":"Department",
+		// 	"hidden":1,
+		// },
 		{
 			"fieldname":"summarized_view",
 			"label": __("Summarized View"),
