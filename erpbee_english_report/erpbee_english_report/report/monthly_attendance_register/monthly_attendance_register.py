@@ -98,6 +98,8 @@ def build_employee_row(emp, att_map, filters, conditions, leave_types=[]):
         if filters.summarized_view:
             if status in ("Present", "Work From Home"):
                 total_p += 1
+            if status == ("Late"):
+                total_late += 1
             elif status == "Absent":
                 total_a += 1
             elif status == "On Leave":
