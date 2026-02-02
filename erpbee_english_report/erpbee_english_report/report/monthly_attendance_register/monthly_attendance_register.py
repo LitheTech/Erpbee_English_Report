@@ -11,6 +11,7 @@ status_map = {
     "On Leave": "OL",
     "Present": "P",
     "Work From Home": "WFH",
+    "Late":"L"
 }
 
 day_abbr = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
