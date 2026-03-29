@@ -17,16 +17,18 @@ def execute(filters=None):
 
 def get_columns():
     return [
+        _("Department") + ":Data:90",
+
         _("Employee") + ":Data:90",
         _("Employee Name") + ":Data:90",
         
-        _("Department") + ":Data:90",
         _("Designation") + ":Data:90",
         _("Joining") + ":Date:90",
         _("Duration (Days)") + ":Data:90",
         # _("Status") + ":Data:90",
-        _("Present") + ":Int:120",
-        _("Absent") + ":Int:90",
+        _("Present") + ":Data:120",
+        _("Absent") + ":Data:90",
+        _("Late") + ":Data:90",
     ]
 
 def get_data(filters):
@@ -39,12 +41,10 @@ def get_data(filters):
                emp.department AS department,
                emp.designation AS designation,
                emp.date_of_joining AS joining,
-               CONCAT(
-                   FLOOR(TIMESTAMPDIFF(YEAR, emp.date_of_joining, %s)), ' Years ',
-                   MOD(TIMESTAMPDIFF(MONTH, emp.date_of_joining, %s), 12), ' Month'
-               ) AS total_service_length,
+               CONCAT( FLOOR(TIMESTAMPDIFF(YEAR, emp.date_of_joining, '%s'))," Years ", MOD(TIMESTAMPDIFF(MONTH, emp.date_of_joining, '%s'),12)," Month") AS total_service_length,
                COUNT(CASE WHEN att.status = 'Present' THEN 1 END) AS present,
-               COUNT(CASE WHEN att.status = 'Absent' THEN 1 END) AS absent
+               COUNT(CASE WHEN att.status = 'Absent' THEN 1 END) AS absent,
+               COUNT(CASE WHEN att.status = 'Late' THEN 1 END) AS late
         FROM `tabEmployee` emp
         LEFT JOIN `tabAttendance` att ON emp.name = att.employee
         WHERE %s
@@ -78,19 +78,21 @@ def get_data(filters):
     for row in result:
         if row['department'] != current_department:
             # Add department row
-            final_data.append([row['department']] + [""] * (7 + len(leave_types)))
+            final_data.append([row['department']] + [""] * (8 + len(leave_types)))
             current_department = row['department']
 
         # Employee row
         data_row = [
             "",  # department column empty for employees
+            row['employee'],
             row['employee_name'],
-            row['department'],
+            # row['department'],
             row['designation'],
             row['joining'],
             row['total_service_length'],
             row['present'],
-            row['absent']
+            row['absent'],
+            row['late']
         ]
 
         # Append leave counts
