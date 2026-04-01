@@ -38,7 +38,7 @@ def execute(filters= None):
 				salary_slip_basic = 0
 
 			
-			overtime_hours=ss.overtime_hours
+			overtime_hours=ss.overtime_hours or 0
 
 
 			buyer2_ot_hours= frappe.db.sql("""SELECT SUM(case when rounded_ot>%s then %s else rounded_ot end) FROM `tabAttendance` where status not in ('Holiday','Weekly Off') and employee=%s and docstatus=1 AND attendance_date between %s and %s group by employee""",
@@ -48,7 +48,19 @@ def execute(filters= None):
 				buyer2_ot_hours = buyer2_ot_hours[0][0]
 			else:
 				buyer2_ot_hours = 0
-			remain_ot=float(overtime_hours)-buyer2_ot_hours
+
+			if filters.buyer=="2":
+				buyer3_ot_hours= frappe.db.sql("""SELECT SUM(case when rounded_ot>%s then %s else rounded_ot end) FROM `tabAttendance` where status not in ('Holiday','Weekly Off') and employee=%s and docstatus=1 AND attendance_date between %s and %s group by employee""",
+			(3,3,ss.employee, ss.start_date, ss.end_date))
+				if buyer3_ot_hours:
+					overtime_hours=buyer3_ot_hours[0][0]
+					remain_ot=overtime_hours-buyer2_ot_hours
+				else:
+					overtime_hours=0
+					remain_ot=0
+
+			else:
+				remain_ot=float(overtime_hours)-buyer2_ot_hours
 			remain_ot_amount=remain_ot*float(ss.overtime_rate)
 
 			row = [
@@ -100,17 +112,17 @@ def get_columns(salary_slips):
 	columns = [
 		# _("Salary Slip ID") + ":Link/Salary Slip:150",
 		_("Department") + "::150",
-		_("Employee") + "::80",
-		_("Employee Name") + "::40",
-		_("Joining_Date") + "::12",
-		_("Designation") + "::40",
+		_("Employee") + "::100",
+		_("Employee Name") + "::140",
+		_("Joining_Date") + "::100",
+		_("Designation") + "::100",
 		# _("Start Date") + "::80",
 		# _("End Date") + "::80",
-		_("Basic") + "::10",
-		_("Total OT Hr.") + ":%.2Float:7",
-		_("Avail OT Hr.") + ":%.2Float:7",
-		_("Remain OT Hr.") + ":%.2Float:7",
-		_("OT Amount") + ":%.2Float:7",
+		_("Basic") + "::100",
+		_("Total OT Hr.") + ":%.2Float:80",
+		_("Avail OT Hr.") + ":%.2Float:80",
+		_("Remain OT Hr.") + ":%.2Float:80",
+		_("OT Amount") + ":%.2Float:80",
 
 	]
 

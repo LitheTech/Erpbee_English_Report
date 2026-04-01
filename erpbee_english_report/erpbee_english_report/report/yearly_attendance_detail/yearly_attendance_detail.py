@@ -9,7 +9,7 @@ def execute(filters=None):
 
     leave_types = frappe.get_all("Leave Type", pluck="name")
     columns.extend([
-        {"label": _(leave_type), "fieldtype": "Float", "width": 120, "precision": 2}
+        {"label": _(leave_type), "fieldtype": "Data", "width": 120, "precision": 2}
         for leave_type in leave_types
     ])
 
