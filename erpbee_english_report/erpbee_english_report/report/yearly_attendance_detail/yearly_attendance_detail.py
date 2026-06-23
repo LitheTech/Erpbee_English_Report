@@ -47,7 +47,7 @@ def get_data(filters):
                COUNT(CASE WHEN att.status = 'Late' THEN 1 END) AS late
         FROM `tabEmployee` emp
         LEFT JOIN `tabAttendance` att ON emp.name = att.employee
-        WHERE %s
+        WHERE %s and att.docstatus = 1
         GROUP BY emp.name, emp.employee_name, emp.department, emp.designation, emp.date_of_joining
         ORDER BY emp.department, emp.employee_name
     """ % (filters["to_date"], filters["to_date"], conditions), as_dict=1)
@@ -59,7 +59,7 @@ def get_data(filters):
     leave_details = frappe.db.sql("""
         SELECT att.employee, att.leave_type, att.status, COUNT(*) as count
         FROM `tabAttendance` att
-        WHERE att.leave_type IS NOT NULL
+        WHERE att.leave_type IS NOT NULL and att.docstatus = 1
           AND att.attendance_date BETWEEN %s AND %s
         GROUP BY att.employee, att.leave_type, att.status
     """, (filters["from_date"], filters["to_date"]), as_dict=1)

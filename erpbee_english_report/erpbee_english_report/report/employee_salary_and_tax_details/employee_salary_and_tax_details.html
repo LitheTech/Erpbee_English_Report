@@ -1,0 +1,207 @@
+{%
+var report_columns = report.get_columns_for_print();
+report_columns = report_columns.filter(col => !col.hidden);
+
+if (report_columns.length > 55) {
+    frappe.throw(__("Too many columns. Export the report and print it using a spreadsheet application."));
+}
+%}
+
+<style>
+.salary-certificate-container {
+    font-family: Arial, Helvetica, sans-serif;
+    color: #333;
+    padding: 10px 20px;
+    background: #fff;
+    /* Clean break for printing exactly one employee per page */
+    page-break-after: always;
+    box-sizing: border-box;
+}
+
+.salary-certificate-container:last-child {
+    page-break-after: avoid;
+}
+
+.text-underline {
+    text-decoration: underline;
+}
+
+.w-70 {
+    width: 70%;
+}
+
+.w-30 {
+    width: 30%;
+}
+
+/* Reduced table padding to save vertical space */
+.salary-table th,
+.salary-table td {
+    vertical-align: middle !important;
+    padding: 5px 8px !important;
+}
+
+/* Tighter spacing for the signature block */
+.signature-section {
+    margin-top: 40px;
+    page-break-inside: avoid;
+}
+
+.signature-space {
+    height: 45px;
+}
+
+.company-name {
+    font-size: 22px;
+    font-weight: bold;
+}
+
+.section-title {
+    margin-top: 10px;
+    margin-bottom: 8px;
+    font-size: 14px;
+}
+
+@media print {
+    .bg-light {
+        background-color: #f8f9fa !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+
+    .table-active {
+        background-color: #eceeef !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+}
+</style>
+
+{% for (var i = 0, len = data.length; i < len; i++) { %}
+    {% var row = data[i]; %}
+    
+
+    <div class="salary-certificate-container">
+        <div style="font-size: 14px; font-weight: bold;text-align: right;">
+            Date: {{ data[i].posting_date }}
+        </div>
+
+        <div class="text-center" style="margin:15px 0;">
+            <h4 class="text-uppercase text-underline" style="font-size: 14px; margin-bottom: 10px;">
+                Certificate of Employees Salary and Deduction of Tax Against Salary
+            </h4>
+
+            <p style="font-size: 15px;">
+                Income Year: {{ data[i].income_year }} , Assessment Year: {{ data[i].assessment_year }}
+            </p>
+        </div>
+        
+        <table class="table table-bordered text-center" style="font-size: 14px;margin-left: 10%;width: 80%; margin-top: 2%;">
+            <tr> 
+                <td colspan="4"><strong>Particulars of the Employee from whom the deduction of tax is Made</strong></td>
+            </tr>
+            <tr >
+                <td><strong> Name</strong></td>
+                <td>{{ data[i].employee_name}}</td>
+                <td><strong>Emp ID </strong></td>
+                <td>{{ data[i].name}}</td>
+            </tr>
+            <tr>
+                <td><strong>Designation </strong></td>
+                <td>{{ data[i].designation}}</td>
+                <td><strong>E-TIN </strong></td>
+                <td>{{ data[i].e_tin}}</td>
+            </tr>
+        </table>
+
+
+        <table class="table table-bordered salary-table text-center" style="font-size: 14px; margin-bottom: 15px; margin-left: 10%;width: 80%; margin-top: 8%;">
+            <thead>
+                <tr>
+                    <th class="w-70 text-center">Particulars of Salaries</th>
+                    <th class="w-30 text-center">Amount (BDT)</th>
+                </tr>
+            </thead>
+
+            <tbody >
+
+                <tr>
+                    <td>Basic Salary</td>
+                    <td class="text-center">
+                        {{ data[i].basic }}
+                    </td>
+                </tr>
+
+                <tr>
+                    <td>Medical Allowance</td>
+                    <td class="text-center">
+                        {{ data[i].medical }}
+                    </td>
+                </tr>
+
+                <tr>
+                    <td>House Rent Allowance</td>
+                    <td class="text-center">
+                        {{ data[i].house_rent }}
+                    </td>
+                </tr>
+
+                <tr>
+                    <td>Conveyance Allowance</td>
+                    <td class="text-center">
+                        {{ data[i].conveyance }}
+                    </td>
+                </tr>
+
+                <tr>
+                    <td>Festival Bonus</td>
+                    <td class="text-center">
+                        {{ data[i].festival_bonus }}
+                    </td>
+                </tr>
+
+                <tr>
+                    <td>Earn Leave Allowance</td>
+                    <td class="text-center">
+                        {{ data[i].earn_leave }}
+                    </td>
+                </tr>
+
+                <tr>
+                    <td>Provident Fund</td>
+                    <td class="text-center">
+                        {{ data[i].pf }}
+                    </td>
+                </tr>
+
+                <tr style="font-weight:bold; background:#f2f2f2;">
+                    <td>TOTAL GROSS PAYMENT</td>
+                    <td class="text-center">
+                        {{ data[i].gross }}
+                    </td>
+                </tr>
+
+            </tbody>
+        </table>
+
+
+        <!-- <div class="row signature-section" style="font-size: 13px;">
+
+            <div class="col-xs-6"></div>
+
+            <div class="col-xs-6 text-center">
+
+                <div class="signature-space"></div>
+
+                <div style="border-top:1px solid #000; padding-top:6px;">
+                    <strong>Md. Nazmul Huda Chowdhury</strong><br>
+                    Manager (Accounts & Finance)<br>
+                    IDEAL Fastener (Bangladesh) Ltd.
+                </div>
+
+            </div>
+
+        </div> -->
+
+    </div>
+{% } %}

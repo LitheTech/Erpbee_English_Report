@@ -14,11 +14,12 @@ def execute(filters=None):
 
 def get_columns(filters):
     return [
+        _("Department") + ":Data:90",
+
         _("Employee") + ":Data:90",
         _("Employee Name") + ":Data:90",
         
         _("Designation") + ":Data:90",
-        _("Department") + ":Data:90",
         _("Joining_Date") + ":Date:90",
         
         _("Gross") + ":Data:90",
@@ -55,25 +56,54 @@ def get_columns(filters):
     ]
 
 def get_data(filters):
-    conditions, filters = get_conditions(filters)
+    data = []
+    departments = frappe.db.get_list("Department", pluck="name", order_by="name")
+
+    for department in departments:
+
+        bonus_data = get_result(filters, department)
+
+        if not bonus_data:  # Skip if no data is found
+            continue
+
+        data.append({"department": department})
+
+
+        totals = [0] * 8 
+        for row in bonus_data:
+            data.append(row)
+
+            for i in range(5, 13):  # 5 to 11 inclusive
+                totals[i - 5] += row[i] or 0
+
+        # Build total row
+        total_row = ["Total", "Total", len(bonus_data), None, None] + totals
+
+        data.append(total_row)
+
+    return data
+
+
+def get_result(filters,department):
+    conditions, filters = get_conditions(filters,department)
 
     result = frappe.db.sql(
     """
     SELECT 
+            NULL,
             emp.name AS Employee,
             emp.employee_name AS Employee_name,
             emp.designation AS Designation,
-            emp.department As Department,
             emp.date_of_joining AS Joining_Date,
             ssa.base AS Gross_Salary,
             COUNT(CASE WHEN att.status IN ('Present','Late') THEN 1 END) AS total_present_days,
-            ROUND(ssa.base/30, 0) AS per_day_payment_for_el,
+            ROUND(ssa.base/26, 0) AS per_day_payment_for_el,
             ROUND(COUNT(CASE WHEN att.status IN ('Present', 'Late') THEN 1 END) / 18, 2) AS el_entitled_days,
-            ROUND(ROUND(COUNT(CASE WHEN att.status IN ('Present', 'Late') THEN 1 END) / 18, 2) * (ssa.base/30), 0) AS gross_el_payment,
+            ROUND(ROUND(COUNT(CASE WHEN att.status IN ('Present', 'Late') THEN 1 END) / 18, 2) * (ssa.base/26), 0) AS gross_el_payment,
             COUNT(CASE WHEN att.status = 'On Leave' AND att.leave_type = 'EL' THEN 1 END) AS EL_availed,
             ROUND(COUNT(CASE WHEN att.status IN ('Present', 'Late') THEN 1 END) / 18, 2) - COUNT(CASE WHEN att.status = 'On Leave' AND att.leave_type = 'EL' THEN 1 END) AS EL_Balance,
-            ROUND((ROUND(COUNT(CASE WHEN att.status IN ('Present', 'Late') THEN 1 END) / 18, 2) - COUNT(CASE WHEN att.status = 'On Leave' AND att.leave_type = 'EL' THEN 1 END)) * ROUND(ssa.base/30, 0)) AS Net_EL_Payment,
-            ROUND(ROUND(ssa.base/30, 0) * COUNT(CASE WHEN att.status = 'On Leave' AND att.leave_type = 'EL' THEN 1 END), 0) AS EL_Payment_Saved_by_Availed,
+            ROUND((ROUND(COUNT(CASE WHEN att.status IN ('Present', 'Late') THEN 1 END) / 18, 2) - COUNT(CASE WHEN att.status = 'On Leave' AND att.leave_type = 'EL' THEN 1 END)) * ROUND(ssa.base/26, 0)) AS Net_EL_Payment,
+            ROUND(ROUND(ssa.base/26, 0) * COUNT(CASE WHEN att.status = 'On Leave' AND att.leave_type = 'EL' THEN 1 END), 0) AS EL_Payment_Saved_by_Availed,
             COUNT(CASE WHEN att.status = 'On Leave' AND att.leave_type = 'CL' THEN 1 END) AS cl,
             COUNT(CASE WHEN att.status = 'On Leave' AND att.leave_type = 'SL' THEN 1 END) AS sl,
 
@@ -95,9 +125,9 @@ def get_data(filters):
         LEFT JOIN tabAttendance att ON emp.name = att.employee
         LEFT JOIN `tabSalary Structure Assignment` ssa 
             ON emp.name = ssa.employee 
-            AND ssa.from_date = (SELECT MAX(from_date) FROM `tabSalary Structure Assignment` WHERE employee = emp.name)
+            AND ssa.from_date = (SELECT MAX(from_date) FROM `tabSalary Structure Assignment` WHERE employee = emp.name and docstatus=1)
         WHERE %s and att.docstatus=1
-        GROUP BY emp.name, emp.department, emp.designation, emp.date_of_joining, emp.status, ssa.base
+        GROUP BY emp.name, emp.department, emp.designation, emp.date_of_joining, emp.status
         ORDER BY emp.name
 """ % (conditions), as_list=1)
 
@@ -106,12 +136,14 @@ def get_data(filters):
 
     return result
 
-def get_conditions(filters):
+def get_conditions(filters,department):
     conditions="" 
     from_date = get_first_day( "01"+ "-" + filters["year"])
     to_date = get_last_day( "12"+ "-" + filters["year"])
     # if filters.get("from_date"): conditions += " att.attendance_date>= '%s'" % filters["from_date"]
     if filters.get("year"): conditions += " att.attendance_date between '%s' and '%s' and emp.date_of_joining<='%s'" % (from_date,to_date,to_date)
+    if department: conditions += " and emp.department= '%s'" % department
+
     if filters.get("employee"): conditions += " and att.employee= '%s'" % filters["employee"]
     if filters.get("company"): conditions += " and att.company= '%s'" % filters["company"]
     if filters.get("department"): conditions += " and att.department= '%s'" % filters["department"]
